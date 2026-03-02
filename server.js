@@ -25,17 +25,25 @@ const taskSchema = new mongoose.Schema(
   {
     // Schema Definition Object
     taskname: { type: String, required: true },
+    description: { type: String }, // Not mandatory
     category: { type: String, required: true },
-    deadline: { type: Date, required: true },
-    status: { type: String, default: "Pending" },
+    status: {
+      type: String,
+      enum: ["Todo", "In Progress", "Completed"],
+      default: "Todo",
+    },
+    deadline: { type: Date }, // Not mandatory
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high"],
+      default: "medium",
+    },
   },
   { timestamps: true }, // Schema Options Object
 );
 
 // Task Model
 const Task = mongoose.model("Task", taskSchema);
-
-// Rout -> API
 
 // POST
 app.post("/tasks", async (req, res) => {
@@ -57,13 +65,25 @@ app.post("/tasks", async (req, res) => {
 // GET for all and filter
 app.get("/tasks", async (req, res) => {
   try {
-    const { fields, ...filter } = req.query;
+    const { fields, sortField, order, ...filter } = req.query;
 
-    let query = Task.find(filter).sort({ createdAt: -1 }); // Filtering
+    // Sorting workflow
+    const allowedSortFields = ["deadline", "priority", "createdAt"];
+    let finalSortField = allowedSortFields.includes(sortField)
+      ? sortField
+      : "createdAt";
+    const sortOrder = order === "asc" ? 1 : -1;
 
+    // Build query with filtering
+    let query = Task.find(filter);
+
+    // Apply sorting
+    query = query.sort({ [finalSortField]: sortOrder });
+
+    // Apply field selection (projection)
     if (fields) {
       const selectedFields = fields.split(",").join(" ");
-      query = query.select(selectedFields); // If specific fields are requested, apply field selection (projection)
+      query = query.select(selectedFields);
     }
 
     const tasks = await query;
@@ -94,23 +114,44 @@ app.get("/tasks/:id", async (req, res) => {
 // Update all field
 app.put("/tasks/:id", async (req, res) => {
   try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    const { id } = req.params;
+
+    // Validate Mongo ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid ID format" });
     }
 
-    // Find task
-    const task = await Task.findById(req.params.id);
+    const task = await Task.findById(id);
 
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
 
-    // Allowed fields to update & category intentionally NOT updated
-    const { taskname, deadline, status } = req.body;
+    // Allowed fields
+    const allowedUpdates = [
+      "taskname",
+      "description",
+      "category",
+      "deadline",
+      "priority",
+      "status",
+    ];
 
-    if (taskname !== undefined) task.taskname = taskname;
-    if (deadline !== undefined) task.deadline = deadline;
-    if (status !== undefined) task.status = status;
+    const updates = Object.keys(req.body); // Take all the keys from request body
+
+    // Validate update fields
+    const isValidOperation = updates.every((update) =>
+      allowedUpdates.includes(update),
+    );
+
+    if (!isValidOperation) {
+      return res.status(400).json({ message: "Invalid update fields" });
+    }
+
+    // Apply updates dynamically
+    updates.forEach((update) => {
+      task[update] = req.body[update];
+    });
 
     const updatedTask = await task.save();
 
@@ -120,7 +161,7 @@ app.put("/tasks/:id", async (req, res) => {
   }
 });
 
-app.patch("/tasks/:id/status", async (req, res) => {
+app.patch("/tasks/:id/status", async (req, res) => { // Just for status update
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: "Invalid ID format" });
