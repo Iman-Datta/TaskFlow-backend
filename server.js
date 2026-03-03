@@ -161,7 +161,8 @@ app.put("/tasks/:id", async (req, res) => {
   }
 });
 
-app.patch("/tasks/:id/status", async (req, res) => { // Just for status update
+app.patch("/tasks/:id/status", async (req, res) => {
+  // Just for status update
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: "Invalid ID format" });
@@ -206,6 +207,6 @@ app.delete("/tasks/:id", async (req, res) => {
 });
 
 // Start server
-app.listen(process.env.PORT, () => {
-  console.log(`Server running on port ${process.env.PORT}`);
+app.listen(process.env.PORT || 5000, () => {
+  console.log(`Server running on port ${process.env.PORT || 5000}`);
 });
