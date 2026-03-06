@@ -20,30 +20,10 @@ mongoose
   .then(() => console.log("MongoDB Connected"))
   .catch((error) => console.log(error)); // Mongoose return promise
 
-// Task Schema (Schema Definition Object + Schema Options Object)
-const taskSchema = new mongoose.Schema(
-  {
-    // Schema Definition Object
-    taskname: { type: String, required: true },
-    description: { type: String }, // Not mandatory
-    category: { type: String, required: true },
-    status: {
-      type: String,
-      enum: ["Todo", "In Progress", "Completed"],
-      default: "Todo",
-    },
-    deadline: { type: Date }, // Not mandatory
-    priority: {
-      type: String,
-      enum: ["low", "medium", "high"],
-      default: "medium",
-    },
-  },
-  { timestamps: true }, // Schema Options Object
-);
+// Auth routes
+const authRoutes = require("./routes/authRoutes");
+app.use("/auth", authRoutes);
 
-// Task Model
-const Task = mongoose.model("Task", taskSchema);
 
 // POST
 app.post("/tasks", async (req, res) => {
