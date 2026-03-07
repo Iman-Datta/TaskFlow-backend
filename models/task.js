@@ -1,3 +1,5 @@
+const mongoose = require("mongoose");
+
 // Task Schema (Schema Definition Object + Schema Options Object)
 const taskSchema = new mongoose.Schema(
   {
