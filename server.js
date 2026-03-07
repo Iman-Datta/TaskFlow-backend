@@ -21,8 +21,8 @@ mongoose
   .catch((error) => console.log(error)); // Mongoose return promise
 
 // Auth routes
-// const authRoutes = require("./routes/authRoutes");
-// app.use("/auth", authRoutes);
+const authRoutes = require("./routes/authRoutes");
+app.use("/auth", authRoutes);
 
 // Tasks routes
 const tasksRoutes = require("./routes/taskRoutes")

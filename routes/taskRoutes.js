@@ -1,3 +1,5 @@
+const authMiddleware = require("../middleware/authMiddleware");
+
 const express = require("express");
 const router = express.Router();
 
@@ -7,10 +9,10 @@ const Task = require("../models/task");
 // controllers
 
 // POST
-router.post("/", async (req, res) => {
+router.post("/", authMiddleware, async (req, res) => {
   try {
     const { taskname } = req.body; // const task_name = req.body.taskname;
-    const task = new Task(req.body);
+    const task = new Task({ ...req.body, user: req.user });
 
     console.log(`Creating task: ${taskname}`);
 
@@ -24,9 +26,12 @@ router.post("/", async (req, res) => {
 });
 
 // GET for all and filter
-router.get("/", async (req, res) => {
+router.get("/", authMiddleware, async (req, res) => {
   try {
     const { fields, sortField, order, ...filter } = req.query;
+
+    // Always restrict tasks to logged-in user
+    filter.user = req.user;
 
     // Sorting workflow
     const allowedSortFields = ["deadline", "priority", "createdAt"];
@@ -36,7 +41,7 @@ router.get("/", async (req, res) => {
     const sortOrder = order === "asc" ? 1 : -1;
 
     // Build query with filtering
-    let query = Task.find(filter);
+    query = Task.find(filter);
 
     // Apply sorting
     query = query.sort({ [finalSortField]: sortOrder });
@@ -56,13 +61,14 @@ router.get("/", async (req, res) => {
 });
 
 // GET via ID
-router.get("/:id", async (req, res) => {
+router.get("/:id", authMiddleware, async (req, res) => {
   try {
+    const reqUser = req.user;
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: "Invalid ID format" });
     }
 
-    const task = await Task.findById(req.params.id);
+    const task = await Task.findOne({ _id: req.params.id, user: reqUser });
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
@@ -73,8 +79,9 @@ router.get("/:id", async (req, res) => {
 });
 
 // Update all field
-router.put("/:id", async (req, res) => {
+router.put("/:id", authMiddleware, async (req, res) => {
   try {
+    const reqUser = req.user;
     const { id } = req.params;
 
     // Validate Mongo ID
@@ -82,7 +89,7 @@ router.put("/:id", async (req, res) => {
       return res.status(400).json({ message: "Invalid ID format" });
     }
 
-    const task = await Task.findById(id);
+    const task = await Task.findOne({ _id: id, user: reqUser });
 
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
@@ -122,9 +129,10 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-router.patch("/:id/status", async (req, res) => {
-  // Just for status update
+// Just for status update
+router.patch("/:id/status", authMiddleware, async (req, res) => {
   try {
+    const reqUser = req.user;
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: "Invalid ID format" });
     }
@@ -135,7 +143,7 @@ router.patch("/:id/status", async (req, res) => {
       return res.status(400).json({ message: "Status is required" });
     }
 
-    const task = await Task.findById(req.params.id);
+    const task = await Task.findOne({ _id: req.params.id, user: reqUser });
 
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
@@ -149,13 +157,17 @@ router.patch("/:id/status", async (req, res) => {
 });
 
 // Delete
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", authMiddleware, async (req, res) => {
   try {
+    const reqUser = req.user;
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: "Invalid ID format" });
     }
 
-    const deletedTask = await Task.findByIdAndDelete(req.params.id);
+    const deletedTask = await Task.findOneAndDelete({
+      _id: req.params.id,
+      user: reqUser,
+    });
 
     if (!deletedTask) {
       return res.status(404).json({ message: "Task not found" });
