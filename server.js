@@ -3,6 +3,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const cookieParser = require("cookie-parser");
 
 // Load environment variables FIRST
 dotenv.config();
@@ -11,8 +12,14 @@ dotenv.config();
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  }),
+);
 app.use(express.json());
+app.use(cookieParser());
 
 // Connect MongoDB
 mongoose
@@ -25,8 +32,8 @@ const authRoutes = require("./routes/authRoutes");
 app.use("/auth", authRoutes);
 
 // Tasks routes
-const tasksRoutes = require("./routes/taskRoutes")
-app.use("/tasks", tasksRoutes)
+const tasksRoutes = require("./routes/taskRoutes");
+app.use("/tasks", tasksRoutes);
 
 // Start server
 app.listen(process.env.PORT || 5000, () => {

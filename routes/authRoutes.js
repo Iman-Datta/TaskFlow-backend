@@ -41,13 +41,13 @@ router.post("/login", async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) {
       console.log("User not exsit");
-      return res.status(400).json({ message: "Invalid email" });
+      return res.status(400).json({ message: "Invalid credentials" });
     }
 
     const passwordIsMatch = await bcrypt.compare(password, user.password); // Hash password matching
     if (!passwordIsMatch) {
       console.log("Wrong password");
-      return res.status(401).json({ message: "Wrong password" });
+      return res.status(401).json({ message: "Invalid credentials" });
     }
 
     // Token creation
@@ -55,10 +55,28 @@ router.post("/login", async (req, res) => {
       expiresIn: "1h",
     });
 
-    res.status(200).json({ message: "Login successful", token });
+    res.cookie("token", token, {
+      httpOnly: true,
+      // secure: true, // for production
+      secure: false,
+      sameSite: "strict",
+      maxAge: 3600000, // 1 hour
+    });
+
+    res.status(200).json({ message: "Login successful" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-module.exports = router
+// Logout
+router.post("/logout", (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    sameSite: "strict",
+    secure: false, // true in production with HTTPS
+  });
+  res.status(200).json({ message: "Logged out successfully" });
+});
+
+module.exports = router;
