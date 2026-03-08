@@ -2,10 +2,9 @@ const express = require("express");
 const router = express.Router();
 
 // Dependencies
-const User = require("../models/User");
+const User = require("../models/user");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const dotenv = require("dotenv");
 
 // Create account
 router.post("/register", async (req, res) => {
@@ -77,6 +76,30 @@ router.post("/logout", (req, res) => {
     secure: false, // true in production with HTTPS
   });
   res.status(200).json({ message: "Logged out successfully" });
+});
+
+// Cehck login or logout
+router.get("/me", async (req, res) => {
+  try {
+    const token = req.cookies.token;
+    if (!token) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.status(200).json({
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    res.status(401).json({ message: error.message });
+  }
 });
 
 module.exports = router;
