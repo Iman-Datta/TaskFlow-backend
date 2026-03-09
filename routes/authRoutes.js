@@ -41,7 +41,11 @@ router.post("/register", async (req, res) => {
 
     res.status(201).json({
       message: "Account created successfully",
-      name: newUser.name,
+      user: {
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+      },
     });
   } catch (err) {
     console.log(err);
