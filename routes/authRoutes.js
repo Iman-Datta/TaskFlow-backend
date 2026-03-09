@@ -23,9 +23,26 @@ router.post("/register", async (req, res) => {
       password: hashedPassword,
       name,
     });
+
     await newUser.save();
-    console.log(`New user's maill id: ${newUser.email}`);
-    res.status(201).json({ message: "Account created successfully", name });
+
+    // Create token after registration
+    const token = jwt.sign({ userId: newUser._id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
+
+    // Set cookie
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      maxAge: 3600000,
+    });
+
+    res.status(201).json({
+      message: "Account created successfully",
+      name: newUser.name,
+    });
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: err.message });
@@ -73,9 +90,10 @@ router.post("/login", async (req, res) => {
 router.post("/logout", (req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
-    sameSite: "strict",
-    secure: false, // true in production with HTTPS
+    sameSite: "none",
+    secure: true,
   });
+
   res.status(200).json({ message: "Logged out successfully" });
 });
 
