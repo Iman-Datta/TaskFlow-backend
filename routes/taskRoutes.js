@@ -41,7 +41,7 @@ router.get("/", authMiddleware, async (req, res) => {
     const sortOrder = order === "asc" ? 1 : -1;
 
     // Build query with filtering
-    query = Task.find(filter);
+    let query = Task.find(filter);
 
     // Apply sorting
     query = query.sort({ [finalSortField]: sortOrder });
@@ -164,14 +164,17 @@ router.delete("/:id", authMiddleware, async (req, res) => {
       return res.status(400).json({ message: "Invalid ID format" });
     }
 
-    const deletedTask = await Task.findOneAndDelete({
+    const task  = await Task.findOne({
       _id: req.params.id,
       user: reqUser,
     });
 
-    if (!deletedTask) {
+    if (!task ) {
       return res.status(404).json({ message: "Task not found" });
     }
+    task .isDeleted = true;
+    task .deletedAt = new Date();
+    await task .save();
 
     res.status(200).json({ message: "Task deleted successfully" });
   } catch (error) {

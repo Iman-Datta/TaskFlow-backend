@@ -1,30 +1,43 @@
 const mongoose = require("mongoose");
 
-// Task Schema (Schema Definition Object + Schema Options Object)
+// Task Schema
 const taskSchema = new mongoose.Schema(
   {
-    // Schema Definition Object
     taskname: { type: String, required: true },
-    description: { type: String }, // Not mandatory
+    description: { type: String },
     category: { type: String, required: true },
+
     status: {
       type: String,
-      enum: ["Todo", "In Progress", "Completed"],
+      enum: ["Todo", "Completed"],
       default: "Todo",
     },
-    deadline: { type: Date }, // Not mandatory
+
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deadline: { type: Date },
+
     priority: {
       type: String,
       enum: ["low", "medium", "high"],
       default: "medium",
     },
+
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true
+      required: true,
     },
   },
-  { timestamps: true }, // Schema Options Object
+  { timestamps: true },
 );
 
 // Task Model

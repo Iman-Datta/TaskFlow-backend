@@ -5,6 +5,8 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const cookieParser = require("cookie-parser");
 
+require("./cron/deleteOldTasks");
+
 // Load environment variables FIRST
 dotenv.config();
 
