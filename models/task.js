@@ -1,6 +1,5 @@
 const mongoose = require("mongoose");
 
-// Task Schema
 const taskSchema = new mongoose.Schema(
   {
     taskname: { type: String, required: true },
@@ -40,7 +39,15 @@ const taskSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-// Task Model
+// TTL Index (24 hours)
+taskSchema.index(
+  { deletedAt: 1 },
+  {
+    expireAfterSeconds: 86400,
+    partialFilterExpression: { isDeleted: true },
+  },
+);
+
 const Task = mongoose.model("Task", taskSchema);
 
 module.exports = Task;

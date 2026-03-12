@@ -4,11 +4,11 @@ const express = require("express");
 const router = express.Router();
 
 const mongoose = require("mongoose");
-const Task = require("../models/task");
+const Task = require("../models/Task");
 
 // controllers
 
-// POST
+// Add task
 router.post("/", authMiddleware, async (req, res) => {
   try {
     const { taskname } = req.body; // const task_name = req.body.taskname;
@@ -164,21 +164,51 @@ router.delete("/:id", authMiddleware, async (req, res) => {
       return res.status(400).json({ message: "Invalid ID format" });
     }
 
-    const task  = await Task.findOne({
+    const task = await Task.findOne({
       _id: req.params.id,
       user: reqUser,
     });
 
-    if (!task ) {
+    if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
-    task .isDeleted = true;
-    task .deletedAt = new Date();
-    await task .save();
+
+    task.isDeleted = true;
+    task.deletedAt = new Date();
+    await task.save();
 
     res.status(200).json({ message: "Task deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// restore task
+router.patch("/:id/restore", authMiddleware, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid ID format" });
+    }
+    const reqUser = req.user;
+
+    const task = await Task.findOne({
+      _id: req.params.id,
+      user: reqUser,
+    });
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
+    if (!task.isDeleted) {
+      return res.status(400).json({ message: "Task is not in recycle bin" });
+    }
+
+    task.isDeleted = false;
+    task.deletedAt = null;
+    await task.save();
+    res.status(200).json({ message: "Task restore successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
