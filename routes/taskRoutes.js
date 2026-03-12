@@ -60,6 +60,71 @@ router.get("/", authMiddleware, async (req, res) => {
   }
 });
 
+// restore task
+router.patch("/:id/restore", authMiddleware, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid ID format" });
+    }
+    const reqUser = req.user;
+
+    const task = await Task.findOne({
+      _id: req.params.id,
+      user: reqUser,
+    });
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
+    if (!task.isDeleted) {
+      return res.status(400).json({ message: "Task is not in recycle bin" });
+    }
+
+    task.isDeleted = false;
+    task.deletedAt = null;
+    await task.save();
+    res.status(200).json({ message: "Task restore successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Update task status (Todo to Completed and completed to todo)
+router.patch("/:id/status", authMiddleware, async (req, res) => {
+  try {
+    const reqUser = req.user;
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid ID format" });
+    }
+
+    const { status } = req.body;
+
+    const allowedStatuses = ["Todo", "Completed"];
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ message: "Invalid status value" });
+    }
+
+    const task = await Task.findOne({
+      _id: req.params.id,
+      user: reqUser,
+    });
+
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
+    task.status = status;
+
+    const updatedTask = await task.save();
+
+    res.status(200).json(updatedTask);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // GET via ID
 router.get("/:id", authMiddleware, async (req, res) => {
   try {
@@ -129,33 +194,6 @@ router.put("/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// Just for status update
-router.patch("/:id/status", authMiddleware, async (req, res) => {
-  try {
-    const reqUser = req.user;
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ message: "Invalid ID format" });
-    }
-
-    const { status } = req.body;
-
-    if (status === undefined) {
-      return res.status(400).json({ message: "Status is required" });
-    }
-
-    const task = await Task.findOne({ _id: req.params.id, user: reqUser });
-
-    if (!task) {
-      return res.status(404).json({ message: "Task not found" });
-    }
-    task.status = status;
-    const updatedTask = await task.save();
-    res.status(200).json(updatedTask);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
 // Delete
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
@@ -180,35 +218,6 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     res.status(200).json({ message: "Task deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
-  }
-});
-
-// restore task
-router.patch("/:id/restore", authMiddleware, async (req, res) => {
-  try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ message: "Invalid ID format" });
-    }
-    const reqUser = req.user;
-
-    const task = await Task.findOne({
-      _id: req.params.id,
-      user: reqUser,
-    });
-    if (!task) {
-      return res.status(404).json({ message: "Task not found" });
-    }
-
-    if (!task.isDeleted) {
-      return res.status(400).json({ message: "Task is not in recycle bin" });
-    }
-
-    task.isDeleted = false;
-    task.deletedAt = null;
-    await task.save();
-    res.status(200).json({ message: "Task restore successfully" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
   }
 });
 
