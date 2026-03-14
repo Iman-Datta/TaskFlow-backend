@@ -1,10 +1,18 @@
 const express = require("express");
+const jwt = require("jsonwebtoken");
 const router = express.Router();
 
 // Dependencies
 const User = require("../models/user");
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
+
+const generateToken = require("../utils/generateToken");
+const sendTokenCookie = require("../utils/sendTokenCookie");
+
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const FRONTEND_URL = process.env.CLIENT_URL;
+const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
 // Create account
 router.post("/register", async (req, res) => {
@@ -25,19 +33,9 @@ router.post("/register", async (req, res) => {
     });
 
     await newUser.save();
-
-    // Create token after registration
-    const token = jwt.sign({ userId: newUser._id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
-
-    // Set cookie
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      maxAge: 3600000,
-    });
+    // Creating a token and setting it in a cookie
+    const token = generateToken(newUser._id);
+    sendTokenCookie(res, token);
 
     res.status(201).json({
       message: "Account created successfully",
@@ -70,19 +68,9 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Token creation
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
-
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: true, // for production
-      // secure: false, // Dev
-      sameSite: "none", // Production
-      // sameSite: "lax", // for dev
-      maxAge: 3600000, // 1 hour
-    });
+    // Creating a token and setting it in a cookie
+    const token = generateToken(user._id);
+    sendTokenCookie(res, token);
 
     res.status(200).json({ message: "Login successful" });
   } catch (err) {
@@ -101,7 +89,7 @@ router.post("/logout", (req, res) => {
   res.status(200).json({ message: "Logged out successfully" });
 });
 
-// Cehck login or logout
+// Cehck login or logout state
 router.get("/me", async (req, res) => {
   try {
     const token = req.cookies.token;
@@ -122,6 +110,84 @@ router.get("/me", async (req, res) => {
     });
   } catch (error) {
     res.status(401).json({ message: error.message });
+  }
+});
+
+// Google Oauth
+
+// Redirect to google
+router.get("/google", async (req, res) => {
+  const googleURL =
+    "https://accounts.google.com/o/oauth2/v2/auth?" +
+    `client_id=${CLIENT_ID}` +
+    `&redirect_uri=${REDIRECT_URI}` +
+    "&response_type=code" +
+    "&scope=profile email";
+
+  res.redirect(googleURL);
+});
+
+// Google Callback
+router.get("/google/callback", async (req, res) => {
+  try {
+    // Exchange code for access token
+    const code = req.query.code;
+
+    const params = new URLSearchParams({
+      code,
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      redirect_uri: REDIRECT_URI,
+      grant_type: "authorization_code",
+    });
+
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params,
+    });
+    const tokenData = await tokenResponse.json();
+
+    if (!tokenData.access_token) {
+      return res.status(400).send("Failed to get access token from Google");
+    }
+    const access_token = tokenData.access_token;
+
+    // Get Google user profile
+    const userResponse = await fetch(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+        },
+      },
+    );
+
+    const user = await userResponse.json();
+
+    if (!user.verified_email) {
+      return res.status(400).send("Google email not verified");
+    }
+
+    const email = user.email;
+    const name = user.name;
+
+    let dbUser = await User.findOne({ email });
+
+    if (!dbUser) {
+      dbUser = await User.create({ email, name });
+    }
+
+    // Creating a token and setting it in a cookie
+    const token = generateToken(dbUser._id);
+    sendTokenCookie(res, token);
+
+    return res.redirect(`${FRONTEND_URL}/oauth-success`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Google authentication failed");
   }
 });
 
