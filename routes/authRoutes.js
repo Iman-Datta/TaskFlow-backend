@@ -1,13 +1,15 @@
+// Dependencies
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const router = express.Router();
-
-// Dependencies
+const crypto = require("crypto");
 const User = require("../models/user");
 const bcrypt = require("bcryptjs");
 
-const generateToken = require("../utils/generateToken");
+const generateToken = require("../utils/jwtgenerateToken");
 const sendTokenCookie = require("../utils/sendTokenCookie");
+const sendEmail = require("../utils/sendEmail");
+const verifyEmailTemplate = require("../emails/verifyEmailTemplate");
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -15,39 +17,103 @@ const FRONTEND_URL = process.env.CLIENT_URL;
 const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
 // Create account
+const magicLinkToken = require("../utils/magicLinkToken");
+
 router.post("/register", async (req, res) => {
   try {
     const { email, password, name } = req.body;
 
     const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
+
+    if (existingUser && existingUser.emailVerified) {
+      return res.status(409).json({
+        message: "Account already exists. Please login.",
+      });
     }
+
+    const { verificationToken, hashedToken } = magicLinkToken();
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newUser = new User({
-      email,
-      password: hashedPassword,
-      name,
-    });
+    let user;
 
-    await newUser.save();
-    // Creating a token and setting it in a cookie
-    const token = generateToken(newUser._id);
-    sendTokenCookie(res, token);
+    if (existingUser && !existingUser.emailVerified) {
+      // reuse unverified account
+      existingUser.password = hashedPassword;
+      existingUser.name = name;
+      existingUser.emailVerificationToken = hashedToken;
+      existingUser.emailVerificationExpire = Date.now() + 10 * 60 * 1000;
+
+      user = await existingUser.save({ validateBeforeSave: false });
+    } else {
+      user = new User({
+        email,
+        password: hashedPassword,
+        name,
+        emailVerified: false,
+        emailVerificationToken: hashedToken,
+        emailVerificationExpire: Date.now() + 10 * 60 * 1000,
+      });
+
+      await user.save();
+    }
+
+    const verificationURL = `${process.env.SERVER_URL}/auth/verify-email?token=${verificationToken}&email=${user.email}`;
+
+    await sendEmail(
+      user.email,
+      "Verify your email",
+      verifyEmailTemplate(verificationURL),
+    );
 
     res.status(201).json({
-      message: "Account created successfully",
-      user: {
-        id: newUser._id,
-        name: newUser.name,
-        email: newUser.email,
-      },
+      message: "Account created. Please check your email.",
+      email: user.email,
+      success: true,
     });
-  } catch (err) {
-    console.log(err);
-    res.status(500).json({ message: err.message });
+  } catch (error) {
+    res.status(500).json({ message: error.message, success: false });
+  }
+});
+
+// Verify Email magic link
+router.get("/verify-email", async (req, res) => {
+  try {
+    const token = req.query.token;
+
+    if (!token) {
+      return res.redirect(`${FRONTEND_URL}/checkEmail?error=invalid_link`);
+    }
+
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+    const user = await User.findOne({
+      emailVerificationToken: hashedToken,
+      emailVerificationExpire: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.redirect(
+        `${FRONTEND_URL}/checkEmail?error=invalid_or_expired`,
+      );
+    }
+
+    if (user.emailVerified) {
+      return res.redirect(`${FRONTEND_URL}/task?status=already_verified`);
+    }
+
+    user.emailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpire = undefined;
+
+    await user.save({ validateBeforeSave: false });
+
+    const jwtToken = generateToken(user._id);
+    sendTokenCookie(res, jwtToken);
+
+    return res.redirect(`${FRONTEND_URL}/task`);
+  } catch (error) {
+    return res.redirect(`${FRONTEND_URL}/checkEmail?error=invalid_link`);
   }
 });
 
@@ -56,12 +122,17 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).select("+password");
     if (!user) {
       console.log("User not exsit");
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    if (!user.emailVerified) {
+      return res.status(403).json({
+        message: "Please verify your email first",
+      });
+    }
     const passwordIsMatch = await bcrypt.compare(password, user.password); // Hash password matching
     if (!passwordIsMatch) {
       console.log("Wrong password");
@@ -75,6 +146,39 @@ router.post("/login", async (req, res) => {
     res.status(200).json({ message: "Login successful" });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+// Resend verification link
+router.post("/resend-verification", async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.emailVerified) {
+      return res.status(400).json({
+        message: "Email already verified",
+      });
+    }
+
+    const { verificationToken, hashedToken } = magicLinkToken();
+    user.emailVerificationToken = hashedToken;
+    user.emailVerificationExpire = Date.now() + 10 * 60 * 1000; // 10 min
+
+    await user.save({ validateBeforeSave: false });
+
+    const verificationURL = `${process.env.SERVER_URL}/auth/verify-email?token=${verificationToken}&email=${user.email}`;
+
+    await sendEmail(
+      user.email,
+      "Verify your email",
+      verifyEmailTemplate(verificationURL),
+    );
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 
