@@ -8,13 +8,4 @@ function sendRefreshTokenCookie(res, token) {
   });
 }
 
-function sendAccessTokenTempCookie(res, token) {
-  res.cookie("accessToken", token, {
-    httpOnly: false, // JS can read
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-    maxAge: 10 * 1000,
-  });
-}
-
-module.exports = { sendRefreshTokenCookie, sendAccessTokenTempCookie };
+module.exports = { sendRefreshTokenCookie };

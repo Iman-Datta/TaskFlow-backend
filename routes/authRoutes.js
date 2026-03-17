@@ -4,17 +4,13 @@ const jwt = require("jsonwebtoken");
 const router = express.Router();
 const crypto = require("crypto");
 const User = require("../models/user");
-const fetch = require("node-fetch");
 const bcrypt = require("bcryptjs");
 
 const {
   generateAccessToken,
   generateRefreshToken,
 } = require("../utils/jwtgenerateToken");
-const {
-  sendRefreshTokenCookie,
-  sendAccessTokenTempCookie,
-} = require("../utils/sendTokenCookie");
+const { sendRefreshTokenCookie } = require("../utils/sendTokenCookie");
 const sendEmail = require("../utils/sendEmail");
 const verifyEmailTemplate = require("../emails/verifyEmailTemplate");
 const authMiddleware = require("../middleware/authMiddleware");
@@ -107,9 +103,8 @@ router.get("/verify-email", async (req, res) => {
     }
 
     if (user.emailVerified) {
-      return res.redirect(`${FRONTEND_URL}/task?status=already_verified`);
+      return res.redirect(`${FRONTEND_URL}/AuthCallback`);
     }
-    const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
     // hash refresh token
     const refreshTokenHash = crypto
@@ -125,9 +120,8 @@ router.get("/verify-email", async (req, res) => {
     await user.save({ validateBeforeSave: false });
 
     sendRefreshTokenCookie(res, refreshToken);
-    sendAccessTokenTempCookie(res, accessToken);
 
-    return res.redirect(`${FRONTEND_URL}/task`);
+    return res.redirect(`${FRONTEND_URL}/AuthCallback`);
   } catch (error) {
     return res.redirect(`${FRONTEND_URL}/checkEmail?error=invalid_link`);
   }
@@ -385,7 +379,6 @@ router.get("/google/callback", async (req, res) => {
     }
 
     // Creating a token and setting it in a cookie
-    const accessToken = generateAccessToken(dbUser._id);
     const refreshToken = generateRefreshToken(dbUser._id);
     // hash refresh token
     const refreshTokenHash = crypto
@@ -398,9 +391,8 @@ router.get("/google/callback", async (req, res) => {
     await dbUser.save({ validateBeforeSave: false });
 
     sendRefreshTokenCookie(res, refreshToken);
-    sendAccessTokenTempCookie(res, accessToken);
 
-    return res.redirect(`${FRONTEND_URL}/oauth-success`);
+    return res.redirect(`${FRONTEND_URL}/AuthCallback`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Google authentication failed");
