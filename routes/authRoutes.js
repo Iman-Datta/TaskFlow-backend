@@ -10,6 +10,11 @@ const {
   generateAccessToken,
   generateRefreshToken,
 } = require("../utils/jwtgenerateToken");
+const {
+  forgotPasswordLimiter,
+  verificationLimiter,
+  loginLimiter,
+} = require("../middleware/rateLimiter");
 const { sendRefreshTokenCookie } = require("../utils/sendTokenCookie");
 const sendEmail = require("../utils/sendEmail");
 const generateOTP = require("../utils/otpGenerator");
@@ -131,7 +136,7 @@ router.get("/verify-email", async (req, res) => {
 });
 
 // Login using JWT
-router.post("/login", async (req, res) => {
+router.post("/login", loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -139,7 +144,7 @@ router.post("/login", async (req, res) => {
       "+password +refreshTokenHash",
     );
     if (!user) {
-      console.log("User not exsit");
+      console.log("User does not exist");
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
@@ -185,7 +190,7 @@ router.post("/login", async (req, res) => {
 });
 
 // Resend verification link
-router.post("/resend-verification", async (req, res) => {
+router.post("/resend-verification", verificationLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     const user = await User.findOne({ email });
@@ -402,8 +407,7 @@ router.get("/google/callback", async (req, res) => {
   }
 });
 
-
-router.post("/forgot-password", async (req, res) => {
+router.post("/forgot-password", forgotPasswordLimiter, async (req, res) => {
   try {
     const { email } = req.body;
 
