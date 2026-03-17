@@ -19,7 +19,15 @@ const userSchema = new mongoose.Schema(
       type: Date,
       index: { expires: "48h" },
     },
+
     refreshTokenHash: { type: String },
+
+    passwordResetOTP: {
+      type: String,
+    },
+    passwordResetExpire: {
+      type: Date,
+    },
   },
   { timestamps: true },
 );

@@ -12,7 +12,12 @@ const {
 } = require("../utils/jwtgenerateToken");
 const { sendRefreshTokenCookie } = require("../utils/sendTokenCookie");
 const sendEmail = require("../utils/sendEmail");
+const generateOTP = require("../utils/otpGenerator");
+const magicLinkToken = require("../utils/magicLinkToken");
+
 const verifyEmailTemplate = require("../emails/verifyEmailTemplate");
+const otpEmailTemplate = require("../emails/otpEmailTemplate");
+
 const authMiddleware = require("../middleware/authMiddleware");
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -21,8 +26,6 @@ const FRONTEND_URL = process.env.CLIENT_URL;
 const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
 // Create account
-const magicLinkToken = require("../utils/magicLinkToken");
-
 router.post("/register", async (req, res) => {
   try {
     const { email, password, name } = req.body;
@@ -121,7 +124,7 @@ router.get("/verify-email", async (req, res) => {
 
     sendRefreshTokenCookie(res, refreshToken);
 
-    return res.redirect(`${FRONTEND_URL}/AuthCallback`);
+    return res.redirect(`${FRONTEND_URL}/task`);
   } catch (error) {
     return res.redirect(`${FRONTEND_URL}/checkEmail?error=invalid_link`);
   }
@@ -240,7 +243,7 @@ router.post("/logout", authMiddleware, async (req, res) => {
   }
 });
 
-// Check login or logout state
+// about me
 router.get("/me", authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user);
@@ -392,10 +395,112 @@ router.get("/google/callback", async (req, res) => {
 
     sendRefreshTokenCookie(res, refreshToken);
 
-    return res.redirect(`${FRONTEND_URL}/AuthCallback`);
+    return res.redirect(`${FRONTEND_URL}/task`);
   } catch (err) {
     console.error(err);
     res.status(500).send("Google authentication failed");
+  }
+});
+
+
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Always send same response (prevents email enumeration)
+    const genericResponse = {
+      message: "If the email exists, OTP has been sent",
+    };
+
+    const user = await User.findOne({ email });
+
+    // If user doesn't exist → still return same response
+    if (!user) {
+      return res.status(200).json(genericResponse);
+    }
+
+    // Optional: block unverified users
+    if (!user.emailVerified) {
+      return res.status(400).json({
+        message: "Please verify your email first",
+      });
+    }
+
+    // Rate limiting (prevent OTP spam)
+    // if (
+    //   user.passwordResetExpire &&
+    //   user.passwordResetExpire > Date.now() - 60 * 1000 // 1 min cooldown
+    // ) {
+    //   return res.status(429).json({
+    //     message: "Please wait before requesting another OTP",
+    //   });
+    // }
+
+    // Generate OTP
+    const { otp, hashedOtp } = generateOTP();
+
+    // Save hashed OTP + expiry
+    user.passwordResetOTP = hashedOtp;
+    user.passwordResetExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    await user.save({ validateBeforeSave: false });
+
+    // Send OTP email
+    await sendEmail(user.email, "Reset Password OTP", otpEmailTemplate(otp));
+
+    return res.status(200).json(genericResponse);
+  } catch (error) {
+    console.error("Forgot Password Error:", error);
+    return res.status(500).json({
+      message: "Something went wrong. Please try again later.",
+    });
+  }
+});
+
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    // Basic validation
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({
+        message: "All fields are required",
+      });
+    }
+
+    // Hash incoming OTP
+    const hashotp = crypto.createHash("sha256").update(otp).digest("hex");
+
+    // Find user with matching OTP + not expired
+    const user = await User.findOne({
+      email,
+      passwordResetOTP: hashotp,
+      passwordResetExpire: { $gt: Date.now() },
+    }).select("+password");
+
+    if (!user) {
+      return res.status(400).json({
+        message: "Invalid or expired OTP",
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    user.passwordResetOTP = undefined;
+    user.passwordResetExpire = undefined;
+    user.refreshTokenHash = undefined;
+
+    await user.save({ validateBeforeSave: false });
+
+    return res.status(200).json({
+      message: "Password reset successful. Please login again.",
+    });
+  } catch (error) {
+    console.error("Reset Password Error:", error);
+    return res.status(500).json({
+      message: "Something went wrong. Please try again.",
+    });
   }
 });
 
