@@ -4,12 +4,20 @@ const jwt = require("jsonwebtoken");
 const router = express.Router();
 const crypto = require("crypto");
 const User = require("../models/user");
+const fetch = require("node-fetch");
 const bcrypt = require("bcryptjs");
 
-const generateToken = require("../utils/jwtgenerateToken");
-const sendTokenCookie = require("../utils/sendTokenCookie");
+const {
+  generateAccessToken,
+  generateRefreshToken,
+} = require("../utils/jwtgenerateToken");
+const {
+  sendRefreshTokenCookie,
+  sendAccessTokenTempCookie,
+} = require("../utils/sendTokenCookie");
 const sendEmail = require("../utils/sendEmail");
 const verifyEmailTemplate = require("../emails/verifyEmailTemplate");
+const authMiddleware = require("../middleware/authMiddleware");
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -58,7 +66,7 @@ router.post("/register", async (req, res) => {
       await user.save();
     }
 
-    const verificationURL = `${process.env.SERVER_URL}/auth/verify-email?token=${verificationToken}&email=${user.email}`;
+    const verificationURL = `${process.env.SERVER_URL}/auth/verify-email?token=${verificationToken}`;
 
     await sendEmail(
       user.email,
@@ -101,15 +109,23 @@ router.get("/verify-email", async (req, res) => {
     if (user.emailVerified) {
       return res.redirect(`${FRONTEND_URL}/task?status=already_verified`);
     }
+    const accessToken = generateAccessToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
+    // hash refresh token
+    const refreshTokenHash = crypto
+      .createHash("sha256")
+      .update(refreshToken)
+      .digest("hex");
 
+    // store in DB
     user.emailVerified = true;
     user.emailVerificationToken = undefined;
     user.emailVerificationExpire = undefined;
-
+    user.refreshTokenHash = refreshTokenHash;
     await user.save({ validateBeforeSave: false });
 
-    const jwtToken = generateToken(user._id);
-    sendTokenCookie(res, jwtToken);
+    sendRefreshTokenCookie(res, refreshToken);
+    sendAccessTokenTempCookie(res, accessToken);
 
     return res.redirect(`${FRONTEND_URL}/task`);
   } catch (error) {
@@ -122,9 +138,15 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email }).select("+password");
+    const user = await User.findOne({ email }).select(
+      "+password +refreshTokenHash",
+    );
     if (!user) {
       console.log("User not exsit");
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    if (!user.password) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
@@ -139,11 +161,27 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Creating a token and setting it in a cookie
-    const token = generateToken(user._id);
-    sendTokenCookie(res, token);
+    // Creating tokens
+    const accessToken = generateAccessToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
 
-    res.status(200).json({ message: "Login successful" });
+    // hash refresh token
+    const refreshTokenHash = crypto
+      .createHash("sha256")
+      .update(refreshToken)
+      .digest("hex");
+
+    // store hash in DB
+    user.refreshTokenHash = refreshTokenHash;
+    await user.save({ validateBeforeSave: false });
+
+    // send cookie
+    sendRefreshTokenCookie(res, refreshToken);
+
+    res.status(200).json({
+      message: "Login successful",
+      accessToken,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -170,41 +208,53 @@ router.post("/resend-verification", async (req, res) => {
 
     await user.save({ validateBeforeSave: false });
 
-    const verificationURL = `${process.env.SERVER_URL}/auth/verify-email?token=${verificationToken}&email=${user.email}`;
+    const verificationURL = `${process.env.SERVER_URL}/auth/verify-email?token=${verificationToken}`;
 
     await sendEmail(
       user.email,
       "Verify your email",
       verifyEmailTemplate(verificationURL),
     );
+    return res.status(200).json({
+      message: "Verification email sent",
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
 // Logout
-router.post("/logout", (req, res) => {
-  res.clearCookie("token", {
-    httpOnly: true,
-    sameSite: "none",
-    secure: true,
-  });
+router.post("/logout", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user);
 
-  res.status(200).json({ message: "Logged out successfully" });
+    if (user) {
+      user.refreshTokenHash = undefined;
+      await user.save({ validateBeforeSave: false });
+    }
+
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/",
+    });
+
+    res.status(200).json({ message: "Logged out successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-// Cehck login or logout state
-router.get("/me", async (req, res) => {
+// Check login or logout state
+router.get("/me", authMiddleware, async (req, res) => {
   try {
-    const token = req.cookies.token;
-    if (!token) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId);
+    const user = await User.findById(req.user);
+
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
     res.status(200).json({
       user: {
         id: user._id,
@@ -217,7 +267,46 @@ router.get("/me", async (req, res) => {
   }
 });
 
-// Google Oauth
+router.get("/refresh-token", async (req, res) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+
+    if (!refreshToken) {
+      return res.status(401).json({ message: "No refresh token received" });
+    }
+
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    if (!decoded) {
+      return res.status(401).json({ message: "Invalid refresh token 0" });
+    }
+
+    const user = await User.findById(decoded.userId).select(
+      "+refreshTokenHash",
+    );
+
+    if (!user || !user.refreshTokenHash) {
+      console.log("Decoded:", decoded);
+      console.log("User:", user);
+      console.log("RefreshTokenHash in DB:", user?.refreshTokenHash);
+      return res.status(401).json({ message: "Invalid refresh token 1" });
+    }
+
+    const hashedRefreshToken = crypto
+      .createHash("sha256")
+      .update(refreshToken)
+      .digest("hex");
+
+    if (user.refreshTokenHash !== hashedRefreshToken) {
+      return res.status(401).json({ message: "Invalid refresh token 2" });
+    }
+
+    const accessToken = generateAccessToken(user._id);
+
+    res.status(200).json({ accessToken });
+  } catch (error) {
+    return res.status(401).json({ message: "Invalid refresh token 3" });
+  }
+});
 
 // Redirect to google
 router.get("/google", async (req, res) => {
@@ -236,6 +325,9 @@ router.get("/google/callback", async (req, res) => {
   try {
     // Exchange code for access token
     const code = req.query.code;
+    if (!code) {
+      return res.status(400).send("Authorization code missing");
+    }
 
     const params = new URLSearchParams({
       code,
@@ -252,6 +344,11 @@ router.get("/google/callback", async (req, res) => {
       },
       body: params,
     });
+
+    if (!tokenResponse.ok) {
+      throw new Error("Failed to fetch Google token");
+    }
+
     const tokenData = await tokenResponse.json();
 
     if (!tokenData.access_token) {
@@ -281,12 +378,27 @@ router.get("/google/callback", async (req, res) => {
     let dbUser = await User.findOne({ email });
 
     if (!dbUser) {
-      dbUser = await User.create({ email, name });
+      dbUser = await User.create({ email, name, emailVerified: true });
+    } else if (!dbUser.emailVerified) {
+      dbUser.emailVerified = true;
+      await dbUser.save({ validateBeforeSave: false });
     }
 
     // Creating a token and setting it in a cookie
-    const token = generateToken(dbUser._id);
-    sendTokenCookie(res, token);
+    const accessToken = generateAccessToken(dbUser._id);
+    const refreshToken = generateRefreshToken(dbUser._id);
+    // hash refresh token
+    const refreshTokenHash = crypto
+      .createHash("sha256")
+      .update(refreshToken)
+      .digest("hex");
+
+    // store in DB
+    dbUser.refreshTokenHash = refreshTokenHash;
+    await dbUser.save({ validateBeforeSave: false });
+
+    sendRefreshTokenCookie(res, refreshToken);
+    sendAccessTokenTempCookie(res, accessToken);
 
     return res.redirect(`${FRONTEND_URL}/oauth-success`);
   } catch (err) {

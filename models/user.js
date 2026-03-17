@@ -19,6 +19,7 @@ const userSchema = new mongoose.Schema(
       type: Date,
       index: { expires: "48h" },
     },
+    refreshTokenHash: { type: String },
   },
   { timestamps: true },
 );

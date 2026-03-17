@@ -2,21 +2,21 @@ const jwt = require("jsonwebtoken");
 
 const authMiddleware = (req, res, next) => {
   try {
-    // const authHeader = req.headers.authorization;
+    const authHeader = req.headers.authorization;
 
-    // if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    //   console.log("Unauthorized");
-    //   return res.status(401).json({ message: "Unauthorized" });
-    // }
-
-    // const token = authHeader.split(" ")[1];
-    const token = req.cookies.token;
-
-    if (!token) {
-      console.log("Unauthorized - no token");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      console.log("Unauthorized");
       return res.status(401).json({ message: "Unauthorized" });
     }
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const token = authHeader.split(" ")[1];
+    // const token = req.cookies.token;
+
+    // if (!token) {
+    //   console.log("Unauthorized - no token");
+    //   return res.status(401).json({ message: "Unauthorized" });
+    // }
+    const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
 
     console.log(decoded);
 

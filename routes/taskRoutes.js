@@ -6,7 +6,8 @@ const router = express.Router();
 const mongoose = require("mongoose");
 const Task = require("../models/task");
 
-// controllers
+
+// Protected routes
 
 // Add task
 router.post("/", authMiddleware, async (req, res) => {
