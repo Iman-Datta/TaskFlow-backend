@@ -27,6 +27,10 @@ mongoose
   .then(() => console.log("MongoDB Connected"))
   .catch((error) => console.log(error)); // Mongoose return promise
 
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 // Auth routes
 const authRoutes = require("./routes/authRoutes");
 app.use("/auth", authRoutes);
